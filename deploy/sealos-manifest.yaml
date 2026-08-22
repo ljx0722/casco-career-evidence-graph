@@ -15,10 +15,16 @@ spec:
         app: __APP_NAME__
     spec:
       automountServiceAccountToken: false
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: __APP_NAME__
           image: __IMAGE__
           imagePullPolicy: Always
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           ports:
             - name: http
               containerPort: 8080
