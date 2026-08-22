@@ -67,7 +67,9 @@ jobs:
           test -n "$NAMESPACE"
           mkdir -p "$HOME/.kube"
           printf '%s' "${{ secrets.SEALOS_KUBECONFIG }}" | base64 --decode > "$HOME/.kube/config"
-          kubectl auth can-i apply -n "$NAMESPACE"
+          kubectl auth can-i create deployments -n "$NAMESPACE"
+          kubectl auth can-i create services -n "$NAMESPACE"
+          kubectl auth can-i create ingresses.networking.k8s.io -n "$NAMESPACE"
       - name: Render isolated manifest
         shell: bash
         run: |
