@@ -1,0 +1,22 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Check public demo for sensitive fields
+        shell: bash
+        run: |
+          ! grep -RniE '1[3-9][0-9]{9}|(sk|ghp|xoxb)_[A-Za-z0-9_-]{12,}' public src README.md

@@ -1,0 +1,81 @@
+name: Deploy to Sealos (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY to deploy the isolated app'
+        required: true
+        type: string
+
+concurrency:
+  group: casco-career-evidence-production
+  cancel-in-progress: false
+
+env:
+  APP_NAME: casco-career-evidence
+  NAMESPACE: ${{ vars.SEALOS_NAMESPACE }}
+  IMAGE: ghcr.io/${{ github.repository_owner }}/casco-career-evidence-graph
+
+jobs:
+  verify:
+    if: inputs.confirm == 'DEPLOY'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Scan public files for personal identifiers
+        shell: bash
+        run: |
+          ! grep -RniE '1[3-9][0-9]{9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' public src README.md NOTICE
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE }}:sha-${{ github.sha }}
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+      - name: Configure Sealos cluster
+        shell: bash
+        run: |
+          test -n "${{ secrets.SEALOS_KUBECONFIG }}"
+          test -n "$NAMESPACE"
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.SEALOS_KUBECONFIG }}" | base64 --decode > "$HOME/.kube/config"
+          kubectl auth can-i apply -n "$NAMESPACE"
+      - name: Render isolated manifest
+        shell: bash
+        run: |
+          sed -e "s/__APP_NAME__/$APP_NAME/g" \
+              -e "s/__NAMESPACE__/$NAMESPACE/g" \
+              -e "s#__IMAGE__#$IMAGE:sha-${{ github.sha }}#g" \
+              deploy/sealos-manifest.yaml > /tmp/sealos-manifest.yaml
+      - name: Apply isolated application
+        run: kubectl apply -n "$NAMESPACE" -f /tmp/sealos-manifest.yaml
+      - name: Wait for rollout
+        run: kubectl rollout status -n "$NAMESPACE" deployment/$APP_NAME --timeout=180s
